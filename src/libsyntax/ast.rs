@@ -964,7 +964,6 @@ pub enum ExplicitSelf_ {
     SelfStatic,                                // no self
     SelfValue,                                 // `self`
     SelfRegion(Option<Lifetime>, Mutability),  // `&'lt self`, `&'lt mut self`
-    SelfBox,                                   // `@self`
     SelfUniq                                   // `~self`
 }
 

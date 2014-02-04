@@ -42,6 +42,7 @@ use syntax::attr;
 use syntax::attr::{AttrMetaMethods};
 use syntax::codemap;
 use syntax::diagnostic;
+use syntax::diagnostic::Emitter;
 use syntax::ext::base::CrateLoader;
 use syntax::parse;
 use syntax::parse::token::InternedString;
@@ -136,10 +137,10 @@ pub fn build_configuration(sess: Session) ->
 }
 
 // Convert strings provided as --cfg [cfgspec] into a crate_cfg
-fn parse_cfgspecs(cfgspecs: ~[~str], demitter: @diagnostic::Emitter)
+fn parse_cfgspecs(cfgspecs: ~[~str])
                   -> ast::CrateConfig {
     cfgspecs.move_iter().map(|s| {
-        let sess = parse::new_parse_sess(Some(demitter));
+        let sess = parse::new_parse_sess();
         parse::parse_meta_from_source_str("cfgspec".to_str(), s, ~[], sess)
     }).collect::<ast::CrateConfig>()
 }
@@ -543,9 +544,7 @@ pub fn compile_input(sess: Session, cfg: ast::CrateConfig, input: &Input,
     phase_6_link_output(sess, &trans, outputs);
 }
 
-struct IdentifiedAnnotation {
-    contents: (),
-}
+struct IdentifiedAnnotation;
 
 impl pprust::PpAnn for IdentifiedAnnotation {
     fn pre(&self, node: pprust::AnnNode) -> io::IoResult<()> {
@@ -623,18 +622,16 @@ pub fn pretty_print_input(sess: Session,
 
     let annotation = match ppm {
         PpmIdentified | PpmExpandedIdentified => {
-            @IdentifiedAnnotation {
-                contents: (),
-            } as @pprust::PpAnn
+            ~IdentifiedAnnotation as ~pprust::PpAnn
         }
         PpmTyped => {
             let ast_map = ast_map.expect("--pretty=typed missing ast_map");
             let analysis = phase_3_run_analysis_passes(sess, &crate, ast_map);
-            @TypedAnnotation {
+            ~TypedAnnotation {
                 analysis: analysis
-            } as @pprust::PpAnn
+            } as ~pprust::PpAnn:
         }
-        _ => @pprust::NoAnn as @pprust::PpAnn,
+        _ => ~pprust::NoAnn as ~pprust::PpAnn:,
     };
 
     let src = &sess.codemap.get_filemap(source_name(input)).src;
@@ -686,17 +683,15 @@ static architecture_abis : &'static [(&'static str, abi::Architecture)] = &'stat
 
     ("mips",   abi::Mips)];
 
-pub fn build_target_config(sopts: @session::Options,
-                           demitter: @diagnostic::Emitter)
+pub fn build_target_config(sopts: @session::Options)
                            -> @session::Config {
     let os = match get_os(sopts.target_triple) {
       Some(os) => os,
-      None => early_error(demitter, "unknown operating system")
+      None => early_error("unknown operating system")
     };
     let arch = match get_arch(sopts.target_triple) {
       Some(arch) => arch,
-      None => early_error(demitter,
-                          "unknown architecture: " + sopts.target_triple)
+      None => early_error("unknown architecture: " + sopts.target_triple)
     };
     let (int_type, uint_type) = match arch {
       abi::X86 => (ast::TyI32, ast::TyU32),
@@ -734,8 +729,7 @@ pub fn host_triple() -> ~str {
 }
 
 pub fn build_session_options(binary: ~str,
-                             matches: &getopts::Matches,
-                             demitter: @diagnostic::Emitter)
+                             matches: &getopts::Matches)
                              -> @session::Options {
     let mut outputs = ~[];
     if matches.opt_present("lib") {
@@ -774,8 +768,8 @@ pub fn build_session_options(binary: ~str,
             let lint_name = lint_name.replace("-", "_");
             match lint_dict.find_equiv(&lint_name) {
               None => {
-                early_error(demitter, format!("unknown {} flag: {}",
-                                           level_name, lint_name));
+                early_error(format!("unknown {} flag: {}",
+                                    level_name, lint_name));
               }
               Some(lint) => {
                 lint_opts.push((lint.lint, *level));
@@ -794,7 +788,7 @@ pub fn build_session_options(binary: ~str,
             if *name == *debug_flag { this_bit = bit; break; }
         }
         if this_bit == 0 {
-            early_error(demitter, format!("unknown debug flag: {}", *debug_flag))
+            early_error(format!("unknown debug flag: {}", *debug_flag))
         }
         debugging_opts |= this_bit;
     }
@@ -826,7 +820,7 @@ pub fn build_session_options(binary: ~str,
             No
         } else if matches.opt_present("O") {
             if matches.opt_present("opt-level") {
-                early_error(demitter, "-O and --opt-level both provided");
+                early_error("-O and --opt-level both provided");
             }
             Default
         } else if matches.opt_present("opt-level") {
@@ -836,7 +830,7 @@ pub fn build_session_options(binary: ~str,
               ~"2" => Default,
               ~"3" => Aggressive,
               _ => {
-                early_error(demitter, "optimization level needs to be between 0-3")
+                early_error("optimization level needs to be between 0-3")
               }
             }
         } else { No }
@@ -861,7 +855,7 @@ pub fn build_session_options(binary: ~str,
         }).collect()
     });
 
-    let cfg = parse_cfgspecs(matches.opt_strs("cfg"), demitter);
+    let cfg = parse_cfgspecs(matches.opt_strs("cfg"));
     let test = matches.opt_present("test");
     let android_cross_path = matches.opt_str("android-cross-path");
     let write_dependency_info = (matches.opt_present("dep-info"),
@@ -922,25 +916,23 @@ pub fn build_session_options(binary: ~str,
 }
 
 pub fn build_session(sopts: @session::Options,
-                     local_crate_source_file: Option<Path>,
-                     demitter: @diagnostic::Emitter)
+                     local_crate_source_file: Option<Path>)
                      -> Session {
     let codemap = @codemap::CodeMap::new();
     let diagnostic_handler =
-        diagnostic::mk_handler(Some(demitter));
+        diagnostic::mk_handler();
     let span_diagnostic_handler =
         diagnostic::mk_span_handler(diagnostic_handler, codemap);
 
-    build_session_(sopts, local_crate_source_file, codemap, demitter, span_diagnostic_handler)
+    build_session_(sopts, local_crate_source_file, codemap, span_diagnostic_handler)
 }
 
 pub fn build_session_(sopts: @session::Options,
                       local_crate_source_file: Option<Path>,
                       codemap: @codemap::CodeMap,
-                      demitter: @diagnostic::Emitter,
                       span_diagnostic_handler: @diagnostic::SpanHandler)
                       -> Session {
-    let target_cfg = build_target_config(sopts, demitter);
+    let target_cfg = build_target_config(sopts);
     let p_s = parse::new_parse_sess_special_handler(span_diagnostic_handler, codemap);
     let cstore = @CStore::new(token::get_ident_interner());
     let filesearch = @filesearch::FileSearch::new(
@@ -1172,8 +1164,8 @@ pub fn build_output_filenames(input: &Input,
     }
 }
 
-pub fn early_error(emitter: &diagnostic::Emitter, msg: &str) -> ! {
-    emitter.emit(None, msg, diagnostic::Fatal);
+pub fn early_error(msg: &str) -> ! {
+    diagnostic::DefaultEmitter.emit(None, msg, diagnostic::Fatal);
     fail!(diagnostic::FatalError);
 }
 
@@ -1203,8 +1195,8 @@ mod test {
               Ok(m) => m,
               Err(f) => fail!("test_switch_implies_cfg_test: {}", f.to_err_msg())
             };
-        let sessopts = build_session_options(~"rustc", matches, @diagnostic::DefaultEmitter);
-        let sess = build_session(sessopts, None, @diagnostic::DefaultEmitter);
+        let sessopts = build_session_options(~"rustc", matches);
+        let sess = build_session(sessopts, None);
         let cfg = build_configuration(sess);
         assert!((attr::contains_name(cfg, "test")));
     }
@@ -1221,8 +1213,8 @@ mod test {
                        f.to_err_msg());
               }
             };
-        let sessopts = build_session_options(~"rustc", matches, @diagnostic::DefaultEmitter);
-        let sess = build_session(sessopts, None, @diagnostic::DefaultEmitter);
+        let sessopts = build_session_options(~"rustc", matches);
+        let sess = build_session(sessopts, None);
         let cfg = build_configuration(sess);
         let mut test_items = cfg.iter().filter(|m| m.name().equiv(&("test")));
         assert!(test_items.next().is_some());
